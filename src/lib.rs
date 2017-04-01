@@ -47,14 +47,14 @@ impl<'a> Param<'a> {
     pub fn normal<T>(t: &'a T) -> Param<'a> {
         Param {
             name: None,
-            value: erase::erase(t),
+            value: t,
         }
     }
 
     pub fn named<T>(name: &'static str, t: &'a T) -> Param<'a> {
         Param {
             name: Some(name),
-            value: erase::erase(t),
+            value: t,
         }
     }
 }

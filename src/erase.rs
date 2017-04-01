@@ -1,12 +1,6 @@
 //! Type erasure for formattable types.
-
 use std::fmt;
 use FormatError;
-
-#[inline(always)]
-pub fn erase<T>(v: &T) -> &Format {
-    v
-}
 
 type Func<T> = fn(&T, &mut fmt::Formatter) -> fmt::Result;
 
