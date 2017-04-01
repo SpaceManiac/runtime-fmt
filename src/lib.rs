@@ -72,17 +72,17 @@ impl<'s> FormatBuf<'s> {
     }
 
     pub fn newln(&mut self) -> &mut Self {
-        {
-            // TODO: fix to not assume self.fmt is Some
-            let fmt = self.fmt.as_ref().unwrap();
-
-            if self.pieces.len() > fmt.len() {
-                // append newline to final piece
-                self.pieces.last_mut().unwrap().to_mut().push_str("\n")
-            } else {
-                // add new piece with newline
-                self.pieces.push("\n".into())
-            }
+        // If fmt is None, the number of implicit formatting specifiers
+        // is the same as the number of arguments.
+        let len = self.fmt.as_ref().map_or(self.args.len(), |fmt| fmt.len());
+        if self.pieces.len() > len {
+            // The final piece is after the final formatting specifier, so
+            // it's okay to just add to the end of it.
+            self.pieces.last_mut().unwrap().to_mut().push_str("\n")
+        } else {
+            // The final piece is before the final formatting specifier, so
+            // a new piece needs to be added at the end.
+            self.pieces.push("\n".into())
         }
         self
     }
@@ -110,7 +110,7 @@ fn parse<'s>(spec: &'s str, params: &'s [Param<'s>]) -> Result<FormatBuf<'s>, Fo
                 // append string to accumulator
                 if str_accum.is_empty() {
                     str_accum = text.into();
-                } else {
+                } else if !text.is_empty() {
                     str_accum.to_mut().push_str(text);
                 }
             }
