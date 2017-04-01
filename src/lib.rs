@@ -16,13 +16,20 @@ use std::fmt::{Arguments, ArgumentV1};
 use std::fmt::rt::v1;
 use std::borrow::Cow;
 
+/// An error during parsing or formatting.
 #[derive(Debug)]
 pub enum Error<'a> {
+    /// A format specifier referred to an out-of-range index.
     BadIndex(usize),
+    /// A format specifier referred to a non-existent range.
     BadName(&'a str),
+    /// A format specifier referred to a non-existent type.
     NoSuchFormat(&'a str),
+    /// A format specifier's type was not satisfied by its argument.
     UnsatisfiedFormat(&'a str),
+    /// An I/O error from an `rt_write!` or `rt_writeln!` call.
     Io(std::io::Error),
+    /// A formatting error from an `rt_write!` or `rt_writeln!` call.
     Fmt(std::fmt::Error),
 }
 
@@ -38,12 +45,14 @@ impl<'a> From<std::fmt::Error> for Error<'a> {
     }
 }
 
+/// A type-erased parameter, with an optional name.
 pub struct Param<'a> {
     name: Option<&'static str>,
     value: &'a erase::Format,
 }
 
 impl<'a> Param<'a> {
+    /// Create a nameless parameter from the given value.
     pub fn normal<T>(t: &'a T) -> Param<'a> {
         Param {
             name: None,
@@ -51,6 +60,7 @@ impl<'a> Param<'a> {
         }
     }
 
+    /// Create a named parameter from the given value.
     pub fn named<T>(name: &'static str, t: &'a T) -> Param<'a> {
         Param {
             name: Some(name),
@@ -59,6 +69,7 @@ impl<'a> Param<'a> {
     }
 }
 
+/// A buffer representing a parsed format string and arguments.
 pub struct FormatBuf<'s> {
     pieces: Vec<Cow<'s, str>>,
     args: Vec<ArgumentV1<'s>>,
@@ -66,11 +77,16 @@ pub struct FormatBuf<'s> {
 }
 
 impl<'s> FormatBuf<'s> {
+    /// Construct a new buffer from the given format string and arguments.
+    ///
+    /// This method should usually not be called directly. Instead use the
+    /// `rt_format_args!` macro.
     #[inline]
     pub fn new(spec: &'s str, params: &'s [Param<'s>]) -> Result<Self, Error<'s>> {
         parse(spec, params)
     }
 
+    /// Append a linefeed (`\n`) to the end of this buffer.
     pub fn newln(&mut self) -> &mut Self {
         // If fmt is None, the number of implicit formatting specifiers
         // is the same as the number of arguments.
@@ -87,6 +103,7 @@ impl<'s> FormatBuf<'s> {
         self
     }
 
+    /// Call a function accepting `Arguments` with the contents of this buffer.
     pub fn with<F: FnOnce(Arguments) -> R, R>(&self, f: F) -> R {
         let pieces: Vec<&str> = self.pieces.iter().map(|r| &**r).collect();
         f(match self.fmt {
