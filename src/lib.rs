@@ -17,7 +17,7 @@ use std::fmt::rt::v1;
 use std::borrow::Cow;
 
 #[derive(Debug)]
-pub enum FormatError<'a> {
+pub enum Error<'a> {
     BadIndex(usize),
     BadName(&'a str),
     NoSuchFormat(&'a str),
@@ -26,15 +26,15 @@ pub enum FormatError<'a> {
     Fmt(std::fmt::Error),
 }
 
-impl<'a> From<std::io::Error> for FormatError<'a> {
+impl<'a> From<std::io::Error> for Error<'a> {
     fn from(e: std::io::Error) -> Self {
-        FormatError::Io(e)
+        Error::Io(e)
     }
 }
 
-impl<'a> From<std::fmt::Error> for FormatError<'a> {
+impl<'a> From<std::fmt::Error> for Error<'a> {
     fn from(e: std::fmt::Error) -> Self {
-        FormatError::Fmt(e)
+        Error::Fmt(e)
     }
 }
 
@@ -67,7 +67,7 @@ pub struct FormatBuf<'s> {
 
 impl<'s> FormatBuf<'s> {
     #[inline]
-    pub fn new(spec: &'s str, params: &'s [Param<'s>]) -> Result<Self, FormatError<'s>> {
+    pub fn new(spec: &'s str, params: &'s [Param<'s>]) -> Result<Self, Error<'s>> {
         parse(spec, params)
     }
 
@@ -96,7 +96,7 @@ impl<'s> FormatBuf<'s> {
     }
 }
 
-fn parse<'s>(spec: &'s str, params: &'s [Param<'s>]) -> Result<FormatBuf<'s>, FormatError<'s>> {
+fn parse<'s>(spec: &'s str, params: &'s [Param<'s>]) -> Result<FormatBuf<'s>, Error<'s>> {
     use fmt_macros as p;
 
     let mut pieces = Vec::new();
@@ -125,7 +125,7 @@ fn parse<'s>(spec: &'s str, params: &'s [Param<'s>]) -> Result<FormatBuf<'s>, Fo
                 };
 
                 // convert the format spec
-                let convert_count = |c| -> Result<v1::Count, FormatError<'s>> {
+                let convert_count = |c| -> Result<v1::Count, Error<'s>> {
                     Ok(match c {
                         p::CountIs(val) => v1::Count::Is(val),
                         p::CountIsName(name) => v1::Count::Param(lookup(params, name)?),
@@ -148,7 +148,7 @@ fn parse<'s>(spec: &'s str, params: &'s [Param<'s>]) -> Result<FormatBuf<'s>, Fo
 
                 // convert the argument
                 if idx >= params.len() {
-                    return Err(FormatError::BadIndex(idx))
+                    return Err(Error::BadIndex(idx))
                 }
                 let argument = params[idx].value.by_name(arg.format.ty)?;
 
@@ -177,12 +177,12 @@ fn parse<'s>(spec: &'s str, params: &'s [Param<'s>]) -> Result<FormatBuf<'s>, Fo
     })
 }
 
-fn lookup<'s, 'n>(params: &'s [Param<'s>], name: &'n str) -> Result<usize, FormatError<'n>> {
+fn lookup<'s, 'n>(params: &'s [Param<'s>], name: &'n str) -> Result<usize, Error<'n>> {
     if let Some(idx) = params.iter().position(|p| {
         p.name.map_or(false, |n| n == name)
     }) {
         Ok(idx)
     } else {
-        Err(FormatError::BadName(name))
+        Err(Error::BadName(name))
     }
 }

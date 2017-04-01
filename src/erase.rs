@@ -1,6 +1,6 @@
 //! Type erasure for formattable types.
 use std::fmt;
-use FormatError;
+use Error;
 
 type Func<T> = fn(&T, &mut fmt::Formatter) -> fmt::Result;
 
@@ -23,19 +23,19 @@ macro_rules! traits {
         )*
 
         pub trait Format {
-            fn by_name<'n>(&self, name: &'n str) -> Result<fmt::ArgumentV1, FormatError<'n>>;
+            fn by_name<'n>(&self, name: &'n str) -> Result<fmt::ArgumentV1, Error<'n>>;
         }
 
         impl<T> Format for T {
-            fn by_name<'n>(&self, name: &'n str) -> Result<fmt::ArgumentV1, FormatError<'n>> {
+            fn by_name<'n>(&self, name: &'n str) -> Result<fmt::ArgumentV1, Error<'n>> {
                 match name {
                     $(
                         $string => match $upper::$lower(self) {
                             Some(f) => Ok(fmt::ArgumentV1::new(self, f)),
-                            None => Err(FormatError::UnsatisfiedFormat(name)),
+                            None => Err(Error::UnsatisfiedFormat(name)),
                         },
                     )*
-                    _ => Err(FormatError::NoSuchFormat(name)),
+                    _ => Err(Error::NoSuchFormat(name)),
                 }
             }
         }
