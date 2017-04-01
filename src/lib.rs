@@ -1,4 +1,19 @@
+//! A crate for string formatting using runtime format strings.
 //!
+//! This crate provides much the same facilities as `std::fmt`, with the
+//! additional allowance for format strings which are not known until runtime.
+//! Possible applications include internationalization, scripting, or other
+//! customization.
+//!
+//! Each of the standard formatting macros `format_args!`, `format!`,
+//! `print!`, `println!`, `write!`, and `writeln!` have corresponding `rt_`
+//! variants. Calls which previously succeeded unconditionally now return
+//! `Result`, which may indicate a bad format string or arguments.
+//!
+//! The syntax for format strings and for macro invocations is equivalent to
+//! that used by `std::fmt`, including support for positional and named
+//! arguments. This crate shells out to the standard library implementations
+//! for as much as possible to ensure feature parity.
 #![feature(fmt_internals)]
 #![feature(specialization)]
 #![feature(unicode)]
@@ -9,7 +24,9 @@
 
 #[macro_use] mod macros;
 mod erase;
+
 // fmt_macros.rs is from rust/src/libfmt_macros/lib.rs
+// copy-pasted rather than externed to avoid dynamically linking libstd
 mod fmt_macros;
 
 use std::fmt::{Arguments, ArgumentV1};
