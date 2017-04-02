@@ -54,7 +54,7 @@ macro_rules! rt_format {
 #[macro_export]
 macro_rules! rt_print {
     ($($rest:tt)*) => {
-        rt_format_args!($($rest)*).map(|x| x.with(::std::io::_print))
+        rt_format_args!($($rest)*).map(|x| x.with($crate::_print))
     }
 }
 
@@ -65,7 +65,7 @@ macro_rules! rt_print {
 #[macro_export]
 macro_rules! rt_println {
     ($($rest:tt)*) => {
-        rt_format_args!($($rest)*).map(|mut x| x.newln().with(::std::io::_print))
+        rt_format_args!($($rest)*).map(|mut x| x.newln().with($crate::_print))
     }
 }
 

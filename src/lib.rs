@@ -17,10 +17,13 @@
 #![feature(fmt_internals)]
 #![feature(specialization)]
 #![feature(unicode)]
-
-// feature(print) seems to be incorrectly linted as unused
-#![allow(unused_features)]
 #![feature(print)]
+
+#[doc(hidden)]
+#[inline]
+pub fn _print(args: Arguments) {
+    std::io::_print(args)
+}
 
 #[macro_use] mod macros;
 mod erase;
