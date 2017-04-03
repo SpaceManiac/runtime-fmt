@@ -23,16 +23,19 @@ macro_rules! traits {
         )*
 
         pub trait Format {
-            fn by_name<'n>(&self, name: &'n str) -> Result<fmt::ArgumentV1, Error<'n>>;
+            fn by_name<'n>(&self, name: &'n str, idx: usize) -> Result<fmt::ArgumentV1, Error<'n>>;
         }
 
         impl<T> Format for T {
-            fn by_name<'n>(&self, name: &'n str) -> Result<fmt::ArgumentV1, Error<'n>> {
+            fn by_name<'n>(&self, name: &'n str, idx: usize) -> Result<fmt::ArgumentV1, Error<'n>> {
                 match name {
                     $(
                         $string => match $upper::$lower(self) {
                             Some(f) => Ok(fmt::ArgumentV1::new(self, f)),
-                            None => Err(Error::UnsatisfiedFormat(name)),
+                            None => Err(Error::UnsatisfiedFormat {
+                                idx: idx,
+                                must_implement: stringify!($upper),
+                            }),
                         },
                     )*
                     _ => Err(Error::NoSuchFormat(name)),

@@ -39,14 +39,19 @@ use std::borrow::Cow;
 /// An error during parsing or formatting.
 #[derive(Debug)]
 pub enum Error<'a> {
+    /// Invalid format string syntax.
+    BadSyntax(Vec<(String, Option<String>)>),
     /// A format specifier referred to an out-of-range index.
     BadIndex(usize),
-    /// A format specifier referred to a non-existent range.
+    /// A format specifier referred to a non-existent name.
     BadName(&'a str),
     /// A format specifier referred to a non-existent type.
     NoSuchFormat(&'a str),
     /// A format specifier's type was not satisfied by its argument.
-    UnsatisfiedFormat(&'a str),
+    UnsatisfiedFormat {
+        idx: usize,
+        must_implement: &'static str,
+    },
     /// An I/O error from an `rt_write!` or `rt_writeln!` call.
     Io(std::io::Error),
     /// A formatting error from an `rt_write!` or `rt_writeln!` call.
@@ -103,7 +108,13 @@ impl<'s> FormatBuf<'s> {
     /// `rt_format_args!` macro.
     #[inline]
     pub fn new(spec: &'s str, params: &'s [Param<'s>]) -> Result<Self, Error<'s>> {
-        parse(spec, params)
+        let mut parser = fmt_macros::Parser::new(spec);
+        let result = parse(&mut parser, params);
+        if parser.errors.is_empty() {
+            result
+        } else {
+            Err(Error::BadSyntax(parser.errors))
+        }
     }
 
     /// Append a linefeed (`\n`) to the end of this buffer.
@@ -133,7 +144,9 @@ impl<'s> FormatBuf<'s> {
     }
 }
 
-fn parse<'s>(spec: &'s str, params: &'s [Param<'s>]) -> Result<FormatBuf<'s>, Error<'s>> {
+fn parse<'s>(parser: &mut fmt_macros::Parser<'s>, params: &'s [Param<'s>])
+    -> Result<FormatBuf<'s>, Error<'s>>
+{
     use fmt_macros as p;
 
     let mut pieces = Vec::new();
@@ -141,7 +154,7 @@ fn parse<'s>(spec: &'s str, params: &'s [Param<'s>]) -> Result<FormatBuf<'s>, Er
     let mut fmt = Vec::new();
 
     let mut str_accum: Cow<str> = "".into();
-    for piece in p::Parser::new(spec) {
+    while let Some(piece) = parser.next() {
         match piece {
             p::Piece::String(text) => {
                 // append string to accumulator
@@ -187,7 +200,7 @@ fn parse<'s>(spec: &'s str, params: &'s [Param<'s>]) -> Result<FormatBuf<'s>, Er
                 if idx >= params.len() {
                     return Err(Error::BadIndex(idx))
                 }
-                let argument = params[idx].value.by_name(arg.format.ty)?;
+                let argument = params[idx].value.by_name(arg.format.ty, idx)?;
 
                 // push the format spec and argument value
                 fmt.push(v1::Argument {
