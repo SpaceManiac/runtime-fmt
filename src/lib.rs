@@ -32,7 +32,7 @@ mod erase;
 // copy-pasted rather than externed to avoid dynamically linking libstd
 mod fmt_macros;
 
-use std::fmt::{Arguments, ArgumentV1};
+use std::fmt::{self, Arguments, ArgumentV1};
 use std::fmt::rt::v1;
 use std::borrow::Cow;
 
@@ -95,6 +95,7 @@ impl<'a> Param<'a> {
 }
 
 /// A buffer representing a parsed format string and arguments.
+#[derive(Clone)]
 pub struct FormatBuf<'s> {
     pieces: Vec<Cow<'s, str>>,
     args: Vec<ArgumentV1<'s>>,
@@ -141,6 +142,18 @@ impl<'s> FormatBuf<'s> {
             Some(ref fmt) => Arguments::new_v1_formatted(&pieces, &self.args, fmt),
             None => Arguments::new_v1(&pieces, &self.args),
         })
+    }
+}
+
+impl<'a> fmt::Display for FormatBuf<'a> {
+    fn fmt(&self, fmt: &mut fmt::Formatter) -> fmt::Result {
+        self.with(|args| fmt.write_fmt(args))
+    }
+}
+
+impl<'a> fmt::Debug for FormatBuf<'a> {
+    fn fmt(&self, fmt: &mut fmt::Formatter) -> fmt::Result {
+        fmt::Display::fmt(self, fmt)
     }
 }
 
