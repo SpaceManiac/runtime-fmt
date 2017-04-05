@@ -18,6 +18,7 @@
 #![feature(specialization)]
 #![feature(unicode)]
 #![feature(print)]
+#![feature(try_from)]
 
 #[doc(hidden)]
 #[inline]
@@ -52,6 +53,8 @@ pub enum Error<'a> {
         idx: usize,
         must_implement: &'static str,
     },
+    /// A parameter was of a type not suitable for use as a count.
+    BadCount(usize),
     /// An I/O error from an `rt_write!` or `rt_writeln!` call.
     Io(std::io::Error),
     /// A formatting error from an `rt_write!` or `rt_writeln!` call.
@@ -74,22 +77,34 @@ impl<'a> From<std::fmt::Error> for Error<'a> {
 pub struct Param<'a> {
     name: Option<&'static str>,
     value: &'a erase::Format,
+    as_usize: Option<usize>,
 }
 
 impl<'a> Param<'a> {
     /// Create a nameless parameter from the given value.
     pub fn normal<T>(t: &'a T) -> Param<'a> {
+        use erase::Format;
         Param {
             name: None,
+            as_usize: t.as_usize(),
             value: t,
         }
     }
 
     /// Create a named parameter from the given value.
     pub fn named<T>(name: &'static str, t: &'a T) -> Param<'a> {
+        use erase::Format;
         Param {
             name: Some(name),
+            as_usize: t.as_usize(),
             value: t,
+        }
+    }
+
+    fn as_usize(&self, idx: usize) -> Result<ArgumentV1, Error> {
+        match self.as_usize {
+            Some(ref num) => Ok(ArgumentV1::from_usize(num)),
+            None => Err(Error::BadCount(idx))
         }
     }
 }
@@ -178,21 +193,39 @@ fn parse<'s>(parser: &mut fmt_macros::Parser<'s>, params: &'s [Param<'s>])
                 }
             }
             p::Piece::NextArgument(arg) => {
+                let mut push_arg = |arg| {
+                    let len = args.len();
+                    args.push(arg);
+                    len
+                };
+
                 // flush accumulator always
                 pieces.push(std::mem::replace(&mut str_accum, "".into()));
 
-                // determine the index of the argument in question
+                // convert the argument
                 let idx = match arg.position {
                     p::Position::ArgumentIs(idx) => idx,
                     p::Position::ArgumentNamed(name) => lookup(params, name)?,
                 };
+                if idx >= params.len() {
+                    return Err(Error::BadIndex(idx))
+                }
+                let argument_pos = push_arg(params[idx].value.by_name(arg.format.ty, idx)?);
 
                 // convert the format spec
-                let convert_count = |c| -> Result<v1::Count, Error<'s>> {
+                let mut convert_count = |c| -> Result<v1::Count, Error<'s>> {
                     Ok(match c {
                         p::CountIs(val) => v1::Count::Is(val),
-                        p::CountIsName(name) => v1::Count::Param(lookup(params, name)?),
-                        p::CountIsParam(idx) => v1::Count::Param(idx),
+                        p::CountIsName(name) => {
+                            let idx = lookup(params, name)?;
+                            v1::Count::Param(push_arg(params[idx].as_usize(idx)?))
+                        }
+                        p::CountIsParam(idx) => {
+                            if idx >= params.len() {
+                                return Err(Error::BadIndex(idx))
+                            }
+                            v1::Count::Param(push_arg(params[idx].as_usize(idx)?))
+                        },
                         p::CountImplied => v1::Count::Implied,
                     })
                 };
@@ -209,18 +242,11 @@ fn parse<'s>(parser: &mut fmt_macros::Parser<'s>, params: &'s [Param<'s>])
                     width: convert_count(arg.format.width)?,
                 };
 
-                // convert the argument
-                if idx >= params.len() {
-                    return Err(Error::BadIndex(idx))
-                }
-                let argument = params[idx].value.by_name(arg.format.ty, idx)?;
-
                 // push the format spec and argument value
                 fmt.push(v1::Argument {
-                    position: v1::Position::At(args.len()),
+                    position: v1::Position::At(argument_pos),
                     format: spec,
                 });
-                args.push(argument);
 
                 // TODO: let fmt be none if all fmts are default.
                 // TODO: for params which appear multiple times in the format
