@@ -26,17 +26,20 @@ macro_rules! rt_format_args {
         rt_format_args!(@[$spec] [$($args)* $crate::Param::normal(&$e),])
     };
     (@[$spec:expr] [$($args:tt)*]) => {
-        $crate::FormatBuf::new($spec, &[$($args)*])
+        $crate::FormatBuf::new(&$spec, &[$($args)*])
     };
     ($spec:expr, $($rest:tt)*) => {
         rt_format_args!(@[$spec] [] $($rest)*)
     };
     ($spec:expr) => {
-        $crate::FormatBuf::new($spec, &[])
+        $crate::FormatBuf::new(&$spec, &[])
     };
 }
 
 /// Format a value of type `String` with a runtime format string.
+///
+/// The format string should be any type coercible to an `&str`, and will not
+/// be consumed.
 ///
 /// Returns a `Result<String, Error>`. See the module-level docs for more
 /// information.
