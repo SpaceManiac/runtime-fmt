@@ -20,9 +20,6 @@
 macro_rules! format {
     ($($rest:tt)*) => { rt_format!($($rest)*).unwrap() }
 }
-/*macro_rules! format {
-    ($($rest:tt)*) => { rt_format!($($rest)*).unwrap() }
-}*/
 macro_rules! print {
     ($($rest:tt)*) => { rt_print!($($rest)*).unwrap() }
 }
@@ -278,16 +275,16 @@ fn test_format_args() {
     let mut buf = String::new();
     {
         let w = &mut buf;
-        write!(w, "{}", format_args!("{}", 1));
-        write!(w, "{}", format_args!("test"));
-        write!(w, "{}", format_args!("{test}", test=3));
+        write!(w, "{}", rt_format_args!("{}", 1).unwrap());
+        write!(w, "{}", rt_format_args!("test").unwrap());
+        write!(w, "{}", rt_format_args!("{test}", test=3).unwrap());
     }
     let s = buf;
     t!(s, "1test3");
 
-    let s = fmt::format(format_args!("hello {}", "world"));
+    let s = rt_format_args!("hello {}", "world").unwrap().with(fmt::format);
     t!(s, "hello world");
-    let s = format!("{}: {}", "args were", format_args!("hello {}", "world"));
+    let s = format!("{}: {}", "args were", rt_format_args!("hello {}", "world").unwrap());
     t!(s, "args were: hello world");
 }
 
