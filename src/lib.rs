@@ -73,6 +73,55 @@ impl<'a> From<std::fmt::Error> for Error<'a> {
     }
 }
 
+impl<'a> std::error::Error for Error<'a> {
+    fn description(&self) -> &str {
+        match *self {
+            Error::BadSyntax(_) => "bad syntax",
+            Error::BadIndex(_) => "out-of-range index",
+            Error::BadName(_) => "unknown name",
+            Error::NoSuchFormat(_) => "bad formatting specifier",
+            Error::UnsatisfiedFormat{..} => "formatting trait not satisfied",
+            Error::BadCount(_) => "non-integer used as count",
+            Error::Io(ref e) => e.description(),
+            Error::Fmt(ref f) => f.description(),
+        }
+    }
+    fn cause(&self) -> Option<&std::error::Error> {
+        match *self {
+            Error::Io(ref e) => Some(e),
+            Error::Fmt(ref e) => Some(e),
+            _ => None,
+        }
+    }
+}
+
+impl<'a> fmt::Display for Error<'a> {
+    fn fmt(&self, fmt: &mut fmt::Formatter) -> fmt::Result {
+        match *self {
+            Error::BadIndex(i) => write!(fmt, "index {} out of range", i),
+            Error::BadName(n) => write!(fmt, "unknown name {:?}", n),
+            Error::NoSuchFormat(c) => write!(fmt, "bad formatting specifier {:?}", c),
+            Error::UnsatisfiedFormat { idx, must_implement } =>
+                write!(fmt, "argument {} does not implement {}", idx, must_implement),
+            Error::BadCount(i) => write!(fmt, "argument {} cannot be used as a count", i),
+            Error::Io(ref e) => e.fmt(fmt),
+            Error::Fmt(ref e) => e.fmt(fmt),
+            Error::BadSyntax(ref errors) => {
+                for (i, err) in errors.iter().enumerate() {
+                    if i > 0 {
+                        fmt.write_str("; ")?;
+                    }
+                    fmt.write_str(&err.0)?;
+                    if let Some(ref more) = err.1 {
+                        write!(fmt, " ({})", more)?;
+                    }
+                }
+                Ok(())
+            }
+        }
+    }
+}
+
 /// A type-erased parameter, with an optional name.
 pub struct Param<'a> {
     name: Option<&'static str>,

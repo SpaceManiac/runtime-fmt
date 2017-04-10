@@ -14,11 +14,12 @@ fn main() {
     };
 
     if let Err(e) = rt_println!(format_spec, id="ID", name="NAME", city="CITY") {
-        println!("Error in header: {:?}", e);
+        println!("error in header: {}", e);
+        if let runtime_fmt::Error::BadSyntax(_) = e { return }
     }
     for row in rows() {
         if let Err(e) = rt_println!(format_spec, id=row.id, name=row.name, city=row.city) {
-            println!("Error: {:?}", e);
+            println!("error: {}", e);
             return;
         }
     }
