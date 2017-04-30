@@ -23,15 +23,15 @@ macro_rules! traits {
     ($($string:pat, $upper:ident, $lower:ident;)*) => {
         $(
             trait $upper {
-                fn $lower(&self) -> Option<Func<Self>>;
+                fn $lower() -> Option<Func<Self>>;
             }
             impl<T> $upper for T {
                 #[inline]
-                default fn $lower(&self) -> Option<Func<Self>> { None }
+                default fn $lower() -> Option<Func<Self>> { None }
             }
             impl<T: fmt::$upper> $upper for T {
                 #[inline]
-                fn $lower(&self) -> Option<Func<Self>> {
+                fn $lower() -> Option<Func<Self>> {
                     Some(<Self as fmt::$upper>::fmt)
                 }
             }
@@ -50,7 +50,7 @@ macro_rules! traits {
             fn by_name<'n>(&self, name: &'n str, idx: usize) -> Result<fmt::ArgumentV1, Error<'n>> {
                 match name {
                     $(
-                        $string => match $upper::$lower(self) {
+                        $string => match <Self as $upper>::$lower() {
                             Some(f) => Ok(fmt::ArgumentV1::new(self, f)),
                             None => Err(Error::UnsatisfiedFormat {
                                 idx: idx,
