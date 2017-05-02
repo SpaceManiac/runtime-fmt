@@ -35,6 +35,7 @@ mod macros;
 // copy-pasted rather than externed to avoid dynamically linking libstd
 mod fmt_macros;
 
+use std::io;
 use std::fmt::{self, Arguments, ArgumentV1};
 use std::fmt::rt::v1;
 use std::borrow::Cow;
@@ -171,6 +172,10 @@ pub struct PreparedFormat<'s, T: FormatArgs> {
 }
 
 impl<'s, T: FormatArgs> PreparedFormat<'s, T> {
+    /// Prepare a format string against a formattable type.
+    ///
+    /// Once the format string has been prepared, formatting individual values
+    /// will not require checking the validity of the format string over again.
     pub fn prepare(format: &'s str) -> Result<Self, Error> {
         let mut prepared = Self {
             pieces: Vec::new(),
@@ -193,6 +198,26 @@ impl<'s, T: FormatArgs> PreparedFormat<'s, T> {
             ArgumentV1::new(t, *f)
         }).collect();
         f(Arguments::new_v1_formatted(&pieces, &args, &self.fmt))
+    }
+
+    /// Format the given value to a `String`.
+    pub fn format(&self, t: &T) -> String {
+        self.with(t, ::std::fmt::format)
+    }
+
+    /// Print the given value to standard output.
+    pub fn print(&self, t: &T) {
+        self.with(t, _print)
+    }
+
+    /// Write the given value to an `io::Write`.
+    pub fn write_io<W: io::Write + ?Sized>(&self, t: &T, dest: &mut W) -> io::Result<()> {
+        self.with(t, |args| dest.write_fmt(args))
+    }
+
+    /// Write the given value to a `fmt::Write`.
+    pub fn write_fmt<W: fmt::Write + ?Sized>(&self, t: &T, dest: &mut W) -> fmt::Result {
+        self.with(t, |args| dest.write_fmt(args))
     }
 }
 
@@ -230,6 +255,26 @@ impl<'s> FormatBuf<'s> {
     pub fn with<F: FnOnce(Arguments) -> R, R>(&self, f: F) -> R {
         let pieces: Vec<&str> = self.pieces.iter().map(|r| &**r).collect();
         f(Arguments::new_v1_formatted(&pieces, &self.args, &self.fmt))
+    }
+
+    /// Format this buffer to a `String`.
+    pub fn format(&self) -> String {
+        self.with(::std::fmt::format)
+    }
+
+    /// Print this buffer to standard output.
+    pub fn print(&self) {
+        self.with(_print)
+    }
+
+    /// Write this buffer to an `io::Write`.
+    pub fn write_io<W: io::Write + ?Sized>(&self, dest: &mut W) -> io::Result<()> {
+        self.with(|args| dest.write_fmt(args))
+    }
+
+    /// Write this buffer to a `fmt::Write`.
+    pub fn write_fmt<W: fmt::Write + ?Sized>(&self, dest: &mut W) -> fmt::Result {
+        self.with(|args| dest.write_fmt(args))
     }
 }
 
