@@ -157,11 +157,20 @@ impl<'a> Param<'a> {
     }
 }
 
+enum PreparedArgument<T> {
+    Normal(fn(&T, &mut fmt::Formatter) -> fmt::Result),
+    Usize(fn(&T) -> &usize),
+}
+impl<T> Copy for PreparedArgument<T> {}
+impl<T> Clone for PreparedArgument<T> {
+    fn clone(&self) -> Self { *self }
+}
+
 /// A pre-checked format string, ready for values of a specific type to be
 /// formatted against it.
 pub struct PreparedFormat<'s, T: FormatArgs> {
     pieces: Vec<Cow<'s, str>>,
-    args: Vec<fn(&T, &mut fmt::Formatter) -> fmt::Result>,
+    args: Vec<PreparedArgument<T>>,
     fmt: Vec<v1::Argument>,
 }
 
@@ -188,8 +197,9 @@ impl<'s, T: FormatArgs> PreparedFormat<'s, T> {
     /// Call a function accepting `Arguments` with the contents of this buffer.
     pub fn with<F: FnOnce(Arguments) -> R, R>(&self, t: &T, f: F) -> R {
         let pieces: Vec<&str> = self.pieces.iter().map(|r| &**r).collect();
-        let args: Vec<ArgumentV1> = self.args.iter().map(|f| {
-            ArgumentV1::new(t, *f)
+        let args: Vec<ArgumentV1> = self.args.iter().map(|f| match *f {
+            PreparedArgument::Normal(func) => ArgumentV1::new(t, func),
+            PreparedArgument::Usize(func) => ArgumentV1::from_usize(func(t)),
         }).collect();
         f(Arguments::new_v1_formatted(&pieces, &args, &self.fmt))
     }
@@ -331,7 +341,7 @@ impl<'p> ParseTarget<'p> for ImmediateParse<'p> {
 struct DelayedParse<T>(PhantomData<fn(&T)>);
 
 impl<'p, T: FormatArgs> ParseTarget<'p> for DelayedParse<T> {
-    type Argument = fn(&T, &mut fmt::Formatter) -> fmt::Result;
+    type Argument = PreparedArgument<T>;
 
     fn validate_name(&mut self, name: &str) -> Option<usize> {
         T::validate_name(name)
@@ -342,11 +352,11 @@ impl<'p, T: FormatArgs> ParseTarget<'p> for DelayedParse<T> {
     }
 
     fn format<'s>(&mut self, spec: &'s str, idx: usize) -> Result<Self::Argument, Error<'s>> {
-        erase::codegen_get_child::<T>(spec, idx)
+        erase::codegen_get_child::<T>(spec, idx).map(PreparedArgument::Normal)
     }
 
-    fn format_usize(&mut self, _idx: usize) -> Option<Self::Argument> {
-        unimplemented!()
+    fn format_usize(&mut self, idx: usize) -> Option<Self::Argument> {
+        T::as_usize(idx).map(PreparedArgument::Usize)
     }
 }
 

@@ -27,10 +27,11 @@ fn implement(ast: &syn::DeriveInput) -> quote::Tokens {
 
     let dummy_ident = syn::Ident::new(format!("_IMPL_FORMAT_ARGS_FOR_{}", ident));
 
-    let (validate_name, validate_index, get_child);
+    let (validate_name, validate_index, get_child, as_usize);
     match *variant {
         syn::VariantData::Struct(ref fields) => {
             get_child = build_fields(fields);
+            as_usize = build_usize(ident, fields);
             validate_index = quote! { false };
 
             let index = 0..fields.len();
@@ -47,6 +48,7 @@ fn implement(ast: &syn::DeriveInput) -> quote::Tokens {
         }
         syn::VariantData::Tuple(ref fields) => {
             get_child = build_fields(fields);
+            as_usize = build_usize(ident, fields);
             validate_name = quote! { _Option::None };
 
             let len = fields.len();
@@ -56,6 +58,7 @@ fn implement(ast: &syn::DeriveInput) -> quote::Tokens {
             validate_name = quote! { _Option::None };
             validate_index = quote! { false };
             get_child = quote! { panic!("bad index {}", index) };
+            as_usize = get_child.clone();
         }
     };
 
@@ -80,6 +83,9 @@ fn implement(ast: &syn::DeriveInput) -> quote::Tokens {
                 {
                     #get_child
                 }
+                fn as_usize(index: usize) -> Option<fn(&Self) -> &usize> {
+                    #as_usize
+                }
             }
         };
     }
@@ -100,6 +106,41 @@ fn build_fields(fields: &[syn::Field]) -> quote::Tokens {
                 ),
             )*
             _ => panic!("bad index {}", index)
+        }
+    }
+}
+
+fn build_usize(for_: &syn::Ident, fields: &[syn::Field]) -> quote::Tokens {
+    let ty_usize = syn::Ty::Path(None, syn::Path {
+        global: false,
+        segments: vec![syn::PathSegment {
+            ident: syn::Ident::from("usize"),
+            parameters: syn::PathParameters::AngleBracketed(syn::AngleBracketedParameterData {
+                lifetimes: vec![],
+                types: vec![],
+                bindings: vec![],
+            }),
+        }]
+    });
+
+    let mut result = quote::Tokens::new();
+    for (idx, field) in fields.iter().enumerate() {
+        // if type is literally `usize`
+        if field.ty == ty_usize {
+            let ident = &field.ident;
+            result.append(quote! {
+                #idx => {
+                    fn inner(this: &#for_) -> &usize { &this.#ident }
+                    Some(inner)
+                },
+            });
+        }
+    }
+
+    quote! {
+        match index {
+            #result
+            _ => None
         }
     }
 }

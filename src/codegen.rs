@@ -126,29 +126,10 @@ pub trait FormatArgs {
     /// Returns `None` if the given format trait cannot format the child at
     /// that index. Panics if the index is invalid.
     fn get_child<F: FormatTrait + ?Sized>(index: usize) -> Option<FormatFn<Self>>;
-}
 
-/*
-macro_rules! impl_for_tuples {
-    () => {}
-    ($first:ident, $($rest:ident,)*) => {
-        impl<$first, $($rest,)> FormatArgs for
-
-        impl_for_tuples! { $($rest,)*) }
-    }
-}
-
-impl_for_tuples! {
-    A, B, C, D, E, F, G, H, I, J,
-}
-*/
-
-// Test implementation for 1-tuples
-impl<T> FormatArgs for (T,) {
-    fn validate_name(_: &str) -> Option<usize> { None }
-    fn validate_index(index: usize) -> bool { index < 1 }
-    fn get_child<F: FormatTrait + ?Sized>(index: usize) -> Option<FormatFn<Self>> {
-        if index != 0 { panic!("bad index {}", index) }
-        combine::<F, Self, T, _>(|this: &Self| &this.0)
-    }
+    /// Return the value at the given index interpreted as a `usize`.
+    ///
+    /// Returns `None` if the child at the given index cannot be interpreted
+    /// as a `usize`. Panics if the index is invalid.
+    fn as_usize(index: usize) -> Option<fn(&Self) -> &usize>;
 }

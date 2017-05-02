@@ -15,6 +15,12 @@ struct TupleStruct(i32, &'static str);
 #[derive(FormatArgs)]
 struct UnitStruct;
 
+#[derive(FormatArgs)]
+struct Alignable {
+    text: &'static str,
+    width: usize,
+}
+
 fn main() {
     let mut prepared = PreparedFormat::prepare("{left}: {right}").unwrap();
     prepared.newln();
@@ -28,4 +34,14 @@ fn main() {
     );
 
     PreparedFormat::prepare("Hello, UnitStruct\n").unwrap().print(&UnitStruct);
+
+    let prepared = PreparedFormat::prepare("({text:^width$})\n").unwrap();
+    prepared.print(&Alignable {
+        text: "Wow, aligned!",
+        width: 15
+    });
+    prepared.print(&Alignable {
+        text: "Wow, aligned!",
+        width: 20
+    })
 }
