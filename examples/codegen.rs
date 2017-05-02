@@ -27,5 +27,5 @@ fn main() {
         &TupleStruct(5, "Hello, TupleStruct")
     );
 
-    PreparedFormat::prepare("Hello, UnitStruct").unwrap().print(&UnitStruct);
+    PreparedFormat::prepare("Hello, UnitStruct\n").unwrap().print(&UnitStruct);
 }

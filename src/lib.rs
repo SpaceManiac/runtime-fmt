@@ -39,6 +39,7 @@ use std::io;
 use std::fmt::{self, Arguments, ArgumentV1};
 use std::fmt::rt::v1;
 use std::borrow::Cow;
+use std::marker::PhantomData;
 
 pub use codegen::FormatArgs;
 
@@ -154,13 +155,6 @@ impl<'a> Param<'a> {
             value: t,
         }
     }
-
-    fn as_usize(&self, idx: usize) -> Result<ArgumentV1, Error> {
-        match self.as_usize {
-            Some(ref num) => Ok(ArgumentV1::from_usize(num)),
-            None => Err(Error::BadCount(idx))
-        }
-    }
 }
 
 /// A pre-checked format string, ready for values of a specific type to be
@@ -176,13 +170,13 @@ impl<'s, T: FormatArgs> PreparedFormat<'s, T> {
     ///
     /// Once the format string has been prepared, formatting individual values
     /// will not require checking the validity of the format string over again.
-    pub fn prepare(format: &'s str) -> Result<Self, Error> {
-        let mut prepared = Self {
-            pieces: Vec::new(),
-            args: Vec::new(),
-            fmt: Vec::new(),
-        };
-        unimplemented!()
+    pub fn prepare(spec: &'s str) -> Result<Self, Error> {
+        outer_parse(spec, &mut DelayedParse::<T>(PhantomData))
+            .map(|result| PreparedFormat {
+                pieces: result.pieces,
+                args: result.args,
+                fmt: result.fmt,
+            })
     }
 
     /// Append a linefeed (`\n`) to the end of this buffer.
@@ -236,13 +230,12 @@ impl<'s> FormatBuf<'s> {
     /// `rt_format_args!` macro.
     #[inline]
     pub fn new(spec: &'s str, params: &'s [Param<'s>]) -> Result<Self, Error<'s>> {
-        let mut parser = fmt_macros::Parser::new(spec);
-        let result = parse(&mut parser, params);
-        if parser.errors.is_empty() {
-            result
-        } else {
-            Err(Error::BadSyntax(parser.errors))
-        }
+        outer_parse(spec, &mut ImmediateParse(params))
+            .map(|result| FormatBuf {
+                pieces: result.pieces,
+                args: result.args,
+                fmt: result.fmt,
+            })
     }
 
     /// Append a linefeed (`\n`) to the end of this buffer.
@@ -305,8 +298,79 @@ fn newln(pieces: &mut Vec<Cow<str>>, len: usize) {
     }
 }
 
-fn parse<'s>(parser: &mut fmt_macros::Parser<'s>, params: &'s [Param<'s>])
-    -> Result<FormatBuf<'s>, Error<'s>>
+trait ParseTarget<'p> {
+    type Argument;
+    fn validate_name(&mut self, name: &str) -> Option<usize>;
+    fn validate_index(&mut self, index: usize) -> bool;
+    fn format<'s>(&mut self, spec: &'s str, idx: usize) -> Result<Self::Argument, Error<'s>>;
+    fn format_usize(&mut self, idx: usize) -> Option<Self::Argument>;
+}
+
+struct ImmediateParse<'p>(&'p [Param<'p>]);
+
+impl<'p> ParseTarget<'p> for ImmediateParse<'p> {
+    type Argument = ArgumentV1<'p>;
+
+    fn validate_name(&mut self, name: &str) -> Option<usize> {
+        self.0.iter().position(|p| p.name.map_or(false, |n| n == name))
+    }
+
+    fn validate_index(&mut self, index: usize) -> bool {
+        index < self.0.len()
+    }
+
+    fn format<'s>(&mut self, spec: &'s str, idx: usize) -> Result<Self::Argument, Error<'s>> {
+        self.0[idx].value.by_name(spec, idx)
+    }
+
+    fn format_usize(&mut self, idx: usize) -> Option<Self::Argument> {
+        self.0[idx].as_usize.as_ref().map(ArgumentV1::from_usize)
+    }
+}
+
+struct DelayedParse<T>(PhantomData<fn(&T)>);
+
+impl<'p, T: FormatArgs> ParseTarget<'p> for DelayedParse<T> {
+    type Argument = fn(&T, &mut fmt::Formatter) -> fmt::Result;
+
+    fn validate_name(&mut self, name: &str) -> Option<usize> {
+        T::validate_name(name)
+    }
+
+    fn validate_index(&mut self, index: usize) -> bool {
+        T::validate_index(index)
+    }
+
+    fn format<'s>(&mut self, spec: &'s str, idx: usize) -> Result<Self::Argument, Error<'s>> {
+        erase::codegen_get_child::<T>(spec, idx)
+    }
+
+    fn format_usize(&mut self, _idx: usize) -> Option<Self::Argument> {
+        unimplemented!()
+    }
+}
+
+struct Parsed<'s, P: ParseTarget<'s>> {
+    pieces: Vec<Cow<'s, str>>,
+    args: Vec<P::Argument>,
+    fmt: Vec<v1::Argument>,
+}
+
+fn outer_parse<'s, P: ParseTarget<'s>>(spec: &'s str, target: &mut P)
+    -> Result<Parsed<'s, P>, Error<'s>>
+{
+    let mut parser = fmt_macros::Parser::new(spec);
+    let result = parse(&mut parser, target);
+    // Perform a separate check so that syntax errors take priority.
+    if parser.errors.is_empty() {
+        result
+    } else {
+        Err(Error::BadSyntax(parser.errors))
+    }
+}
+
+fn parse<'s, P: ParseTarget<'s>>(parser: &mut fmt_macros::Parser<'s>, target: &mut P)
+    -> Result<Parsed<'s, P>, Error<'s>>
 {
     use fmt_macros as p;
 
@@ -337,27 +401,43 @@ fn parse<'s>(parser: &mut fmt_macros::Parser<'s>, params: &'s [Param<'s>])
 
                 // convert the argument
                 let idx = match arg.position {
-                    p::Position::ArgumentIs(idx) => idx,
-                    p::Position::ArgumentNamed(name) => lookup(params, name)?,
+                    p::Position::ArgumentIs(idx) => {
+                        if !target.validate_index(idx) {
+                            return Err(Error::BadIndex(idx))
+                        }
+                        idx
+                    }
+                    p::Position::ArgumentNamed(name) => {
+                        match target.validate_name(name) {
+                            Some(idx) => idx,
+                            None => return Err(Error::BadName(name))
+                        }
+                    }
                 };
-                if idx >= params.len() {
-                    return Err(Error::BadIndex(idx))
-                }
-                let argument_pos = push_arg(params[idx].value.by_name(arg.format.ty, idx)?);
+                let argument_pos = push_arg(target.format(arg.format.ty, idx)?);
 
                 // convert the format spec
                 let mut convert_count = |c| -> Result<v1::Count, Error<'s>> {
                     Ok(match c {
                         p::CountIs(val) => v1::Count::Is(val),
                         p::CountIsName(name) => {
-                            let idx = lookup(params, name)?;
-                            v1::Count::Param(push_arg(params[idx].as_usize(idx)?))
+                            let idx = match target.validate_name(name) {
+                                Some(idx) => idx,
+                                None => return Err(Error::BadName(name))
+                            };
+                            v1::Count::Param(push_arg(match target.format_usize(idx) {
+                                Some(arg) => arg,
+                                None => return Err(Error::BadCount(idx))
+                            }))
                         }
                         p::CountIsParam(idx) => {
-                            if idx >= params.len() {
+                            if !target.validate_index(idx) {
                                 return Err(Error::BadIndex(idx))
                             }
-                            v1::Count::Param(push_arg(params[idx].as_usize(idx)?))
+                            v1::Count::Param(push_arg(match target.format_usize(idx) {
+                                Some(arg) => arg,
+                                None => return Err(Error::BadCount(idx))
+                            }))
                         },
                         p::CountImplied => v1::Count::Implied,
                     })
@@ -392,19 +472,9 @@ fn parse<'s>(parser: &mut fmt_macros::Parser<'s>, params: &'s [Param<'s>])
         pieces.push(str_accum);
     }
 
-    Ok(FormatBuf {
+    Ok(Parsed {
         pieces: pieces,
         args: args,
         fmt: fmt,
     })
-}
-
-fn lookup<'s, 'n>(params: &'s [Param<'s>], name: &'n str) -> Result<usize, Error<'n>> {
-    if let Some(idx) = params.iter().position(|p| {
-        p.name.map_or(false, |n| n == name)
-    }) {
-        Ok(idx)
-    } else {
-        Err(Error::BadName(name))
-    }
 }

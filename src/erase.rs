@@ -62,6 +62,23 @@ macro_rules! traits {
                 }
             }
         }
+
+        pub fn codegen_get_child<'n, T: ::FormatArgs>(name: &'n str, idx: usize)
+            -> Result<fn(&T, &mut fmt::Formatter) -> fmt::Result, Error>
+        {
+            match name {
+                $(
+                    $string => match T::get_child::<fmt::$upper>(idx) {
+                        Some(f) => Ok(f),
+                        None => Err(Error::UnsatisfiedFormat {
+                            idx: idx,
+                            must_implement: stringify!($upper),
+                        })
+                    },
+                )*
+                _ => Err(Error::NoSuchFormat(name)),
+            }
+        }
     }
 }
 
