@@ -15,6 +15,7 @@
 //! arguments. This crate shells out to the standard library implementations
 //! for as much as possible to ensure feature parity.
 #![feature(fmt_internals)]
+#![feature(conservative_impl_trait)]
 #![feature(specialization)]
 #![feature(unicode)]
 #![feature(print)]
@@ -26,8 +27,9 @@ pub fn _print(args: Arguments) {
     std::io::_print(args)
 }
 
-#[macro_use] mod macros;
+pub mod codegen;
 mod erase;
+mod macros;
 
 // fmt_macros.rs is from rust/src/libfmt_macros/lib.rs
 // copy-pasted rather than externed to avoid dynamically linking libstd
@@ -36,6 +38,8 @@ mod fmt_macros;
 use std::fmt::{self, Arguments, ArgumentV1};
 use std::fmt::rt::v1;
 use std::borrow::Cow;
+
+pub use codegen::FormatArgs;
 
 /// An error during parsing or formatting.
 #[derive(Debug)]
@@ -155,6 +159,22 @@ impl<'a> Param<'a> {
             Some(ref num) => Ok(ArgumentV1::from_usize(num)),
             None => Err(Error::BadCount(idx))
         }
+    }
+}
+
+/// A pre-checked format string, ready for values of a specific type to be
+/// formatted against it.
+pub struct PreparedFormat<T: FormatArgs> {
+    _phantom: std::marker::PhantomData<fn(&T)>,
+}
+
+impl<T: FormatArgs> PreparedFormat<T> {
+    pub fn prepare(format: &str) -> Result<Self, Error> {
+        unimplemented!()
+    }
+
+    pub fn format_args(&self, arg: &T) -> Arguments {
+        unimplemented!()
     }
 }
 

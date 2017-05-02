@@ -11,4 +11,5 @@ keywords = ["format", "fmt", "runtime", "string", "formatting"]
 repository = "https://github.com/SpaceManiac/runtime-fmt"
 documentation = "https://docs.rs/runtime-fmt"
 
-[dependencies]
+[dev-dependencies]
+runtime-fmt-derive = { path = "runtime-fmt-derive" }
