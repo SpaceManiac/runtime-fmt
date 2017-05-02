@@ -182,17 +182,7 @@ impl<'s, T: FormatArgs> PreparedFormat<'s, T> {
 
     /// Append a linefeed (`\n`) to the end of this buffer.
     pub fn newln(&mut self) -> &mut Self {
-        // If fmt is None, the number of implicit formatting specifiers
-        // is the same as the number of arguments.
-        if self.pieces.len() > self.fmt.len() {
-            // The final piece is after the final formatting specifier, so
-            // it's okay to just add to the end of it.
-            self.pieces.last_mut().unwrap().to_mut().push_str("\n")
-        } else {
-            // The final piece is before the final formatting specifier, so
-            // a new piece needs to be added at the end.
-            self.pieces.push("\n".into())
-        }
+        newln(&mut self.pieces, self.fmt.len());
         self
     }
 
@@ -211,7 +201,7 @@ impl<'s, T: FormatArgs> PreparedFormat<'s, T> {
 pub struct FormatBuf<'s> {
     pieces: Vec<Cow<'s, str>>,
     args: Vec<ArgumentV1<'s>>,
-    fmt: Option<Vec<v1::Argument>>,
+    fmt: Vec<v1::Argument>,
 }
 
 impl<'s> FormatBuf<'s> {
@@ -232,17 +222,14 @@ impl<'s> FormatBuf<'s> {
 
     /// Append a linefeed (`\n`) to the end of this buffer.
     pub fn newln(&mut self) -> &mut Self {
-        newln(&mut self.pieces, &self.fmt, self.args.len());
+        newln(&mut self.pieces, self.fmt.len());
         self
     }
 
     /// Call a function accepting `Arguments` with the contents of this buffer.
     pub fn with<F: FnOnce(Arguments) -> R, R>(&self, f: F) -> R {
         let pieces: Vec<&str> = self.pieces.iter().map(|r| &**r).collect();
-        f(match self.fmt {
-            Some(ref fmt) => Arguments::new_v1_formatted(&pieces, &self.args, fmt),
-            None => Arguments::new_v1(&pieces, &self.args),
-        })
+        f(Arguments::new_v1_formatted(&pieces, &self.args, &self.fmt))
     }
 }
 
@@ -258,10 +245,10 @@ impl<'a> fmt::Debug for FormatBuf<'a> {
     }
 }
 
-fn newln(pieces: &mut Vec<Cow<str>>, fmt: &Option<Vec<v1::Argument>>, args_len: usize) {
+fn newln(pieces: &mut Vec<Cow<str>>, len: usize) {
     // If fmt is None, the number of implicit formatting specifiers
     // is the same as the number of arguments.
-    let len = fmt.as_ref().map_or(args_len, |fmt| fmt.len());
+    //let len = fmt.as_ref().map_or(args_len, |fmt| fmt.len());
     if pieces.len() > len {
         // The final piece is after the final formatting specifier, so
         // it's okay to just add to the end of it.
@@ -363,7 +350,7 @@ fn parse<'s>(parser: &mut fmt_macros::Parser<'s>, params: &'s [Param<'s>])
     Ok(FormatBuf {
         pieces: pieces,
         args: args,
-        fmt: Some(fmt),
+        fmt: fmt,
     })
 }
 
