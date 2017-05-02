@@ -164,17 +164,45 @@ impl<'a> Param<'a> {
 
 /// A pre-checked format string, ready for values of a specific type to be
 /// formatted against it.
-pub struct PreparedFormat<T: FormatArgs> {
-    _phantom: std::marker::PhantomData<fn(&T)>,
+pub struct PreparedFormat<'s, T: FormatArgs> {
+    pieces: Vec<Cow<'s, str>>,
+    args: Vec<fn(&T, &mut fmt::Formatter) -> fmt::Result>,
+    fmt: Vec<v1::Argument>,
 }
 
-impl<T: FormatArgs> PreparedFormat<T> {
-    pub fn prepare(format: &str) -> Result<Self, Error> {
+impl<'s, T: FormatArgs> PreparedFormat<'s, T> {
+    pub fn prepare(format: &'s str) -> Result<Self, Error> {
+        let mut prepared = Self {
+            pieces: Vec::new(),
+            args: Vec::new(),
+            fmt: Vec::new(),
+        };
         unimplemented!()
     }
 
-    pub fn format_args(&self, arg: &T) -> Arguments {
-        unimplemented!()
+    /// Append a linefeed (`\n`) to the end of this buffer.
+    pub fn newln(&mut self) -> &mut Self {
+        // If fmt is None, the number of implicit formatting specifiers
+        // is the same as the number of arguments.
+        if self.pieces.len() > self.fmt.len() {
+            // The final piece is after the final formatting specifier, so
+            // it's okay to just add to the end of it.
+            self.pieces.last_mut().unwrap().to_mut().push_str("\n")
+        } else {
+            // The final piece is before the final formatting specifier, so
+            // a new piece needs to be added at the end.
+            self.pieces.push("\n".into())
+        }
+        self
+    }
+
+    /// Call a function accepting `Arguments` with the contents of this buffer.
+    pub fn with<F: FnOnce(Arguments) -> R, R>(&self, t: &T, f: F) -> R {
+        let pieces: Vec<&str> = self.pieces.iter().map(|r| &**r).collect();
+        let args: Vec<ArgumentV1> = self.args.iter().map(|f| {
+            ArgumentV1::new(t, *f)
+        }).collect();
+        f(Arguments::new_v1_formatted(&pieces, &args, &self.fmt))
     }
 }
 
@@ -204,18 +232,7 @@ impl<'s> FormatBuf<'s> {
 
     /// Append a linefeed (`\n`) to the end of this buffer.
     pub fn newln(&mut self) -> &mut Self {
-        // If fmt is None, the number of implicit formatting specifiers
-        // is the same as the number of arguments.
-        let len = self.fmt.as_ref().map_or(self.args.len(), |fmt| fmt.len());
-        if self.pieces.len() > len {
-            // The final piece is after the final formatting specifier, so
-            // it's okay to just add to the end of it.
-            self.pieces.last_mut().unwrap().to_mut().push_str("\n")
-        } else {
-            // The final piece is before the final formatting specifier, so
-            // a new piece needs to be added at the end.
-            self.pieces.push("\n".into())
-        }
+        newln(&mut self.pieces, &self.fmt, self.args.len());
         self
     }
 
@@ -238,6 +255,21 @@ impl<'a> fmt::Display for FormatBuf<'a> {
 impl<'a> fmt::Debug for FormatBuf<'a> {
     fn fmt(&self, fmt: &mut fmt::Formatter) -> fmt::Result {
         fmt::Display::fmt(self, fmt)
+    }
+}
+
+fn newln(pieces: &mut Vec<Cow<str>>, fmt: &Option<Vec<v1::Argument>>, args_len: usize) {
+    // If fmt is None, the number of implicit formatting specifiers
+    // is the same as the number of arguments.
+    let len = fmt.as_ref().map_or(args_len, |fmt| fmt.len());
+    if pieces.len() > len {
+        // The final piece is after the final formatting specifier, so
+        // it's okay to just add to the end of it.
+        pieces.last_mut().unwrap().to_mut().push_str("\n")
+    } else {
+        // The final piece is before the final formatting specifier, so
+        // a new piece needs to be added at the end.
+        pieces.push("\n".into())
     }
 }
 
