@@ -169,9 +169,7 @@ impl<T> Clone for PreparedArgument<T> {
 /// A pre-checked format string, ready for values of a specific type to be
 /// formatted against it.
 pub struct PreparedFormat<'s, T: FormatArgs> {
-    pieces: Vec<Cow<'s, str>>,
-    args: Vec<PreparedArgument<T>>,
-    fmt: Vec<v1::Argument>,
+    inner: Parsed<'s, DelayedParse<T>>,
 }
 
 impl<'s, T: FormatArgs> PreparedFormat<'s, T> {
@@ -181,27 +179,22 @@ impl<'s, T: FormatArgs> PreparedFormat<'s, T> {
     /// will not require checking the validity of the format string over again.
     pub fn prepare(spec: &'s str) -> Result<Self, Error> {
         outer_parse(spec, &mut DelayedParse::<T>(PhantomData))
-            .map(|result| PreparedFormat {
-                pieces: result.pieces,
-                args: result.args,
-                fmt: result.fmt,
-            })
+            .map(|result| PreparedFormat { inner: result })
     }
 
     /// Append a linefeed (`\n`) to the end of this buffer.
     pub fn newln(&mut self) -> &mut Self {
-        newln(&mut self.pieces, self.fmt.len());
+        self.inner.newln();
         self
     }
 
     /// Call a function accepting `Arguments` with the contents of this buffer.
     pub fn with<F: FnOnce(Arguments) -> R, R>(&self, t: &T, f: F) -> R {
-        let pieces: Vec<&str> = self.pieces.iter().map(|r| &**r).collect();
-        let args: Vec<ArgumentV1> = self.args.iter().map(|f| match *f {
+        let args: Vec<ArgumentV1> = self.inner.args.iter().map(|f| match *f {
             PreparedArgument::Normal(func) => ArgumentV1::new(t, func),
             PreparedArgument::Usize(func) => ArgumentV1::from_usize(func(t)),
         }).collect();
-        f(Arguments::new_v1_formatted(&pieces, &args, &self.fmt))
+        f(Arguments::new_v1_formatted(&self.inner.pieces(), &args, &self.inner.fmt))
     }
 
     /// Format the given value to a `String`.
@@ -225,12 +218,19 @@ impl<'s, T: FormatArgs> PreparedFormat<'s, T> {
     }
 }
 
+impl<'s, T: FormatArgs> Clone for PreparedFormat<'s, T> {
+    fn clone(&self) -> Self {
+        PreparedFormat { inner: self.inner.clone() }
+    }
+    fn clone_from(&mut self, source: &Self) {
+        self.inner.clone_from(&source.inner)
+    }
+}
+
 /// A buffer representing a parsed format string and arguments.
 #[derive(Clone)]
 pub struct FormatBuf<'s> {
-    pieces: Vec<Cow<'s, str>>,
-    args: Vec<ArgumentV1<'s>>,
-    fmt: Vec<v1::Argument>,
+    inner: Parsed<'s, ImmediateParse<'s>>,
 }
 
 impl<'s> FormatBuf<'s> {
@@ -241,23 +241,22 @@ impl<'s> FormatBuf<'s> {
     #[inline]
     pub fn new(spec: &'s str, params: &'s [Param<'s>]) -> Result<Self, Error<'s>> {
         outer_parse(spec, &mut ImmediateParse(params))
-            .map(|result| FormatBuf {
-                pieces: result.pieces,
-                args: result.args,
-                fmt: result.fmt,
-            })
+            .map(|result| FormatBuf { inner: result })
     }
 
     /// Append a linefeed (`\n`) to the end of this buffer.
     pub fn newln(&mut self) -> &mut Self {
-        newln(&mut self.pieces, self.fmt.len());
+        self.inner.newln();
         self
     }
 
     /// Call a function accepting `Arguments` with the contents of this buffer.
     pub fn with<F: FnOnce(Arguments) -> R, R>(&self, f: F) -> R {
-        let pieces: Vec<&str> = self.pieces.iter().map(|r| &**r).collect();
-        f(Arguments::new_v1_formatted(&pieces, &self.args, &self.fmt))
+        f(Arguments::new_v1_formatted(
+            &self.inner.pieces(),
+            &self.inner.args,
+            &self.inner.fmt
+        ))
     }
 
     /// Format this buffer to a `String`.
@@ -290,21 +289,6 @@ impl<'a> fmt::Display for FormatBuf<'a> {
 impl<'a> fmt::Debug for FormatBuf<'a> {
     fn fmt(&self, fmt: &mut fmt::Formatter) -> fmt::Result {
         fmt::Display::fmt(self, fmt)
-    }
-}
-
-fn newln(pieces: &mut Vec<Cow<str>>, len: usize) {
-    // If fmt is None, the number of implicit formatting specifiers
-    // is the same as the number of arguments.
-    //let len = fmt.as_ref().map_or(args_len, |fmt| fmt.len());
-    if pieces.len() > len {
-        // The final piece is after the final formatting specifier, so
-        // it's okay to just add to the end of it.
-        pieces.last_mut().unwrap().to_mut().push_str("\n")
-    } else {
-        // The final piece is before the final formatting specifier, so
-        // a new piece needs to be added at the end.
-        pieces.push("\n".into())
     }
 }
 
@@ -364,6 +348,44 @@ struct Parsed<'s, P: ParseTarget<'s>> {
     pieces: Vec<Cow<'s, str>>,
     args: Vec<P::Argument>,
     fmt: Vec<v1::Argument>,
+}
+
+impl<'s, P: ParseTarget<'s>> Clone for Parsed<'s, P>
+    where P::Argument: Clone
+{
+    fn clone(&self) -> Self {
+        Parsed {
+            pieces: self.pieces.clone(),
+            args: self.args.clone(),
+            fmt: self.fmt.clone(),
+        }
+    }
+    fn clone_from(&mut self, source: &Self) {
+        self.pieces.clone_from(&source.pieces);
+        self.args.clone_from(&source.args);
+        self.fmt.clone_from(&source.fmt);
+    }
+}
+
+impl<'s, P: ParseTarget<'s>> Parsed<'s, P> {
+    fn newln(&mut self) {
+        // If fmt is None, the number of implicit formatting specifiers
+        // is the same as the number of arguments.
+        //let len = fmt.as_ref().map_or(args_len, |fmt| fmt.len());
+        if self.pieces.len() > self.fmt.len() {
+            // The final piece is after the final formatting specifier, so
+            // it's okay to just add to the end of it.
+            self.pieces.last_mut().unwrap().to_mut().push_str("\n")
+        } else {
+            // The final piece is before the final formatting specifier, so
+            // a new piece needs to be added at the end.
+            self.pieces.push("\n".into())
+        }
+    }
+
+    fn pieces(&self) -> Vec<&str> {
+        self.pieces.iter().map(|r| &**r).collect()
+    }
 }
 
 fn outer_parse<'s, P: ParseTarget<'s>>(spec: &'s str, target: &mut P)
