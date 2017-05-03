@@ -7,16 +7,20 @@ use std::fmt::*;
 /// Implementors correspond to formatting traits which may apply to values.
 pub trait FormatTrait {
     /// Return whether this format trait is applicable to a type.
+    #[inline]
     fn allowed<T>() -> bool;
     /// Format a value of the given trait using this format trait.
     /// Must panic if `allowed::<T>()` is false.
+    #[inline]
     fn perform<T>(t: &T, f: &mut Formatter) -> Result;
 }
 
 // Abuse specialization to provide the `FormatTrait` impl for the actual
 // format traits without requiring HKT or other deep chicanery.
 trait Specialized<T> {
+    #[inline]
     fn allowed() -> bool;
+    #[inline]
     fn perform(t: &T, f: &mut Formatter) -> Result;
 }
 
@@ -24,21 +28,27 @@ macro_rules! impl_format_trait {
     ($($name:ident,)*) => {
         $(
             impl<T> Specialized<T> for $name {
+                #[inline]
                 default fn allowed() -> bool { false }
+                #[inline]
                 default fn perform(_: &T, _: &mut Formatter) -> Result {
                     panic!()
                 }
             }
 
             impl<T: $name> Specialized<T> for $name {
+                #[inline]
                 fn allowed() -> bool { true }
+                #[inline]
                 fn perform(t: &T, f: &mut Formatter) -> Result {
                     t.fmt(f)
                 }
             }
 
             impl FormatTrait for $name {
+                #[inline]
                 fn allowed<T>() -> bool { <Self as Specialized<T>>::allowed() }
+                #[inline]
                 fn perform<T>(t: &T, f: &mut Formatter) -> Result {
                     <Self as Specialized<T>>::perform(t, f)
                 }
@@ -52,6 +62,7 @@ impl_format_trait! {
     UpperHex,
 }
 
+#[inline]
 fn get_formatter<T, F: FormatTrait + ?Sized>()
     -> Option<impl Fn(&T, &mut Formatter) -> Result>
 {
@@ -62,6 +73,7 @@ fn get_formatter<T, F: FormatTrait + ?Sized>()
     }
 }
 
+#[inline]
 // The combined function which will be returned by `make_combined`.
 fn combined<A, B, LHS, RHS>(a: &A, f: &mut Formatter) -> Result
     where LHS: Fn(&A) -> &B, RHS: Fn(&B, &mut Formatter) -> Result
@@ -76,6 +88,7 @@ type FormatFn<T> = fn(&T, &mut Formatter) -> Result;
 
 // Accepts dummy arguments to allow type parameter inference, and returns
 // `combined` instantiated with those arguments.
+#[inline]
 fn make_combined<A, B, LHS, RHS>(_: LHS, _: RHS) -> FormatFn<A>
     where LHS: Fn(&A) -> &B, RHS: Fn(&B, &mut Formatter) -> Result
 {
@@ -95,12 +108,36 @@ fn make_combined<A, B, LHS, RHS>(_: LHS, _: RHS) -> FormatFn<A>
 ///
 /// Returns `None` if the formatting trait is not applicable to `B`.
 /// Panics if `func` is not zero-sized.
+#[inline]
 pub fn combine<F, A, B, Func>(func: Func)
     -> Option<FormatFn<A>>
     where F: FormatTrait + ?Sized, Func: Fn(&A) -> &B
 {
     // Combines `get_formatter` and `make_combined` in one.
     get_formatter::<B, F>().map(|r| make_combined(func, r))
+}
+
+// Specialization abuse to select only functions which return `&usize`.
+trait SpecUsize {
+    #[inline]
+    fn convert<T>(f: fn(&T) -> &Self) -> Option<fn(&T) -> &usize>;
+}
+
+impl<U> SpecUsize for U {
+    #[inline]
+    default fn convert<T>(_: fn(&T) -> &Self) -> Option<fn(&T) -> &usize> { None }
+}
+
+impl SpecUsize for usize {
+    #[inline]
+    fn convert<T>(f: fn(&T) -> &usize) -> Option<fn(&T) -> &usize> { Some(f) }
+}
+
+/// Attempt to convert a function from `&A` to `&B` to a function from `&A`
+/// to `&usize`. Returns `Some` only when `B` is `usize`.
+#[inline]
+pub fn as_usize<A, B>(f: fn(&A) -> &B) -> Option<fn(&A) -> &usize> {
+    <B as SpecUsize>::convert::<A>(f)
 }
 
 /// A trait for types against which formatting specifiers may be pre-checked.

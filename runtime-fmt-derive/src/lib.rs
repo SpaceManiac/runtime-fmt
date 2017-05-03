@@ -110,37 +110,26 @@ fn build_fields(fields: &[syn::Field]) -> quote::Tokens {
     }
 }
 
-fn build_usize(for_: &syn::Ident, fields: &[syn::Field]) -> quote::Tokens {
-    let ty_usize = syn::Ty::Path(None, syn::Path {
-        global: false,
-        segments: vec![syn::PathSegment {
-            ident: syn::Ident::from("usize"),
-            parameters: syn::PathParameters::AngleBracketed(syn::AngleBracketedParameterData {
-                lifetimes: vec![],
-                types: vec![],
-                bindings: vec![],
-            }),
-        }]
-    });
-
+fn build_usize(self_: &syn::Ident, fields: &[syn::Field]) -> quote::Tokens {
     let mut result = quote::Tokens::new();
     for (idx, field) in fields.iter().enumerate() {
-        // if type is literally `usize`
-        if field.ty == ty_usize {
-            let ident = &field.ident;
-            result.append(quote! {
-                #idx => {
-                    fn inner(this: &#for_) -> &usize { &this.#ident }
-                    Some(inner)
-                },
-            });
-        }
+        let ident = match field.ident {
+            Some(ref ident) => ident.clone(),
+            None => syn::Ident::from(idx),
+        };
+        let ty = &field.ty;
+        result.append(quote! {
+            #idx => {
+                fn inner(this: &#self_) -> &#ty { &this.#ident }
+                _runtime_fmt::codegen::as_usize(inner)
+            },
+        });
     }
 
     quote! {
         match index {
             #result
-            _ => None
+            _ => panic!("bad index {}", index)
         }
     }
 }
