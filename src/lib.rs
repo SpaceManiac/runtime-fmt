@@ -177,12 +177,14 @@ impl<'s, T: FormatArgs> PreparedFormat<'s, T> {
     ///
     /// Once the format string has been prepared, formatting individual values
     /// will not require checking the validity of the format string over again.
+    #[inline]
     pub fn prepare(spec: &'s str) -> Result<Self, Error> {
-        outer_parse(spec, &mut DelayedParse::<T>(PhantomData))
+        parse(spec, &mut DelayedParse::<T>(PhantomData))
             .map(|result| PreparedFormat { inner: result })
     }
 
     /// Append a linefeed (`\n`) to the end of this buffer.
+    #[inline]
     pub fn newln(&mut self) -> &mut Self {
         self.inner.newln();
         self
@@ -202,21 +204,25 @@ impl<'s, T: FormatArgs> PreparedFormat<'s, T> {
     }
 
     /// Format the given value to a `String`.
+    #[inline]
     pub fn format(&self, t: &T) -> String {
         self.with(t, ::std::fmt::format)
     }
 
     /// Print the given value to standard output.
+    #[inline]
     pub fn print(&self, t: &T) {
         self.with(t, _print)
     }
 
     /// Write the given value to an `io::Write`.
+    #[inline]
     pub fn write_io<W: io::Write + ?Sized>(&self, t: &T, dest: &mut W) -> io::Result<()> {
         self.with(t, |args| dest.write_fmt(args))
     }
 
     /// Write the given value to a `fmt::Write`.
+    #[inline]
     pub fn write_fmt<W: fmt::Write + ?Sized>(&self, t: &T, dest: &mut W) -> fmt::Result {
         self.with(t, |args| dest.write_fmt(args))
     }
@@ -244,11 +250,12 @@ impl<'s> FormatBuf<'s> {
     /// `rt_format_args!` macro.
     #[inline]
     pub fn new(spec: &'s str, params: &'s [Param<'s>]) -> Result<Self, Error<'s>> {
-        outer_parse(spec, &mut ImmediateParse(params))
+        parse(spec, &mut ImmediateParse(params))
             .map(|result| FormatBuf { inner: result })
     }
 
     /// Append a linefeed (`\n`) to the end of this buffer.
+    #[inline]
     pub fn newln(&mut self) -> &mut Self {
         self.inner.newln();
         self
@@ -264,33 +271,39 @@ impl<'s> FormatBuf<'s> {
     }
 
     /// Format this buffer to a `String`.
+    #[inline]
     pub fn format(&self) -> String {
         self.with(::std::fmt::format)
     }
 
     /// Print this buffer to standard output.
+    #[inline]
     pub fn print(&self) {
         self.with(_print)
     }
 
     /// Write this buffer to an `io::Write`.
+    #[inline]
     pub fn write_io<W: io::Write + ?Sized>(&self, dest: &mut W) -> io::Result<()> {
         self.with(|args| dest.write_fmt(args))
     }
 
     /// Write this buffer to a `fmt::Write`.
+    #[inline]
     pub fn write_fmt<W: fmt::Write + ?Sized>(&self, dest: &mut W) -> fmt::Result {
         self.with(|args| dest.write_fmt(args))
     }
 }
 
 impl<'a> fmt::Display for FormatBuf<'a> {
+    #[inline]
     fn fmt(&self, fmt: &mut fmt::Formatter) -> fmt::Result {
         self.with(|args| fmt.write_fmt(args))
     }
 }
 
 impl<'a> fmt::Debug for FormatBuf<'a> {
+    #[inline]
     fn fmt(&self, fmt: &mut fmt::Formatter) -> fmt::Result {
         fmt::Display::fmt(self, fmt)
     }
@@ -388,16 +401,17 @@ impl<'s, P: ParseTarget<'s>> Parsed<'s, P> {
         }
     }
 
+    #[inline]
     fn pieces(&self) -> Vec<&str> {
         self.pieces.iter().map(|r| &**r).collect()
     }
 }
 
-fn outer_parse<'s, P: ParseTarget<'s>>(spec: &'s str, target: &mut P)
+fn parse<'s, P: ParseTarget<'s>>(spec: &'s str, target: &mut P)
     -> Result<Parsed<'s, P>, Error<'s>>
 {
     let mut parser = fmt_macros::Parser::new(spec);
-    let result = parse(&mut parser, target);
+    let result = inner_parse(&mut parser, target);
     // Perform a separate check so that syntax errors take priority.
     if parser.errors.is_empty() {
         result
@@ -406,11 +420,13 @@ fn outer_parse<'s, P: ParseTarget<'s>>(spec: &'s str, target: &mut P)
     }
 }
 
-fn parse<'s, P: ParseTarget<'s>>(parser: &mut fmt_macros::Parser<'s>, target: &mut P)
+fn inner_parse<'s, P>(parser: &mut fmt_macros::Parser<'s>, target: &mut P)
     -> Result<Parsed<'s, P>, Error<'s>>
+    where P: ParseTarget<'s>
 {
     use fmt_macros as p;
 
+    const DEFAULT_FILL: char = ' ';
     const DEFAULT_KEY: p::FormatSpec = p::FormatSpec {
         fill: None,
         align: p::AlignUnknown,
@@ -420,7 +436,7 @@ fn parse<'s, P: ParseTarget<'s>>(parser: &mut fmt_macros::Parser<'s>, target: &m
         ty: "",
     };
     const DEFAULT_VALUE: v1::FormatSpec = v1::FormatSpec {
-        fill: ' ',
+        fill: DEFAULT_FILL,
         align: v1::Alignment::Unknown,
         flags: 0,
         precision: v1::Count::Implied,
@@ -511,7 +527,7 @@ fn parse<'s, P: ParseTarget<'s>>(parser: &mut fmt_macros::Parser<'s>, target: &m
                 // If specs are currently explicit, push this spec.
                 if let Some(fmt) = fmt.as_mut() {
                     let spec = v1::FormatSpec {
-                        fill: arg.format.fill.unwrap_or(' '),
+                        fill: arg.format.fill.unwrap_or(DEFAULT_FILL),
                         flags: arg.format.flags,
                         align: match arg.format.align {
                             p::AlignLeft => v1::Alignment::Left,
