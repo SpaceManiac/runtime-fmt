@@ -190,11 +190,15 @@ impl<'s, T: FormatArgs> PreparedFormat<'s, T> {
 
     /// Call a function accepting `Arguments` with the contents of this buffer.
     pub fn with<F: FnOnce(Arguments) -> R, R>(&self, t: &T, f: F) -> R {
+        let pieces = self.inner.pieces();
         let args: Vec<ArgumentV1> = self.inner.args.iter().map(|f| match *f {
             PreparedArgument::Normal(func) => ArgumentV1::new(t, func),
             PreparedArgument::Usize(func) => ArgumentV1::from_usize(func(t)),
         }).collect();
-        f(Arguments::new_v1_formatted(&self.inner.pieces(), &args, &self.inner.fmt))
+        f(match self.inner.fmt {
+            Some(ref fmt) => Arguments::new_v1_formatted(&pieces, &args, fmt),
+            None => Arguments::new_v1(&pieces, &args),
+        })
     }
 
     /// Format the given value to a `String`.
@@ -252,11 +256,11 @@ impl<'s> FormatBuf<'s> {
 
     /// Call a function accepting `Arguments` with the contents of this buffer.
     pub fn with<F: FnOnce(Arguments) -> R, R>(&self, f: F) -> R {
-        f(Arguments::new_v1_formatted(
-            &self.inner.pieces(),
-            &self.inner.args,
-            &self.inner.fmt
-        ))
+        let pieces = self.inner.pieces();
+        f(match self.inner.fmt {
+            Some(ref fmt) => Arguments::new_v1_formatted(&pieces, &self.inner.args, fmt),
+            None => Arguments::new_v1(&pieces, &self.inner.args),
+        })
     }
 
     /// Format this buffer to a `String`.
@@ -347,7 +351,7 @@ impl<'p, T: FormatArgs> ParseTarget<'p> for DelayedParse<T> {
 struct Parsed<'s, P: ParseTarget<'s>> {
     pieces: Vec<Cow<'s, str>>,
     args: Vec<P::Argument>,
-    fmt: Vec<v1::Argument>,
+    fmt: Option<Vec<v1::Argument>>,
 }
 
 impl<'s, P: ParseTarget<'s>> Clone for Parsed<'s, P>
@@ -360,6 +364,7 @@ impl<'s, P: ParseTarget<'s>> Clone for Parsed<'s, P>
             fmt: self.fmt.clone(),
         }
     }
+
     fn clone_from(&mut self, source: &Self) {
         self.pieces.clone_from(&source.pieces);
         self.args.clone_from(&source.args);
@@ -371,8 +376,8 @@ impl<'s, P: ParseTarget<'s>> Parsed<'s, P> {
     fn newln(&mut self) {
         // If fmt is None, the number of implicit formatting specifiers
         // is the same as the number of arguments.
-        //let len = fmt.as_ref().map_or(args_len, |fmt| fmt.len());
-        if self.pieces.len() > self.fmt.len() {
+        let len = self.fmt.as_ref().map_or(self.args.len(), |fmt| fmt.len());
+        if self.pieces.len() > len {
             // The final piece is after the final formatting specifier, so
             // it's okay to just add to the end of it.
             self.pieces.last_mut().unwrap().to_mut().push_str("\n")
@@ -406,9 +411,26 @@ fn parse<'s, P: ParseTarget<'s>>(parser: &mut fmt_macros::Parser<'s>, target: &m
 {
     use fmt_macros as p;
 
+    const DEFAULT_KEY: p::FormatSpec = p::FormatSpec {
+        fill: None,
+        align: p::AlignUnknown,
+        flags: 0,
+        precision: p::CountImplied,
+        width: p::CountImplied,
+        ty: "",
+    };
+    const DEFAULT_VALUE: v1::FormatSpec = v1::FormatSpec {
+        fill: ' ',
+        align: v1::Alignment::Unknown,
+        flags: 0,
+        precision: v1::Count::Implied,
+        width: v1::Count::Implied,
+    };
+
     let mut pieces = Vec::new();
     let mut args = Vec::new();
-    let mut fmt = Vec::new();
+    let mut fmt = None;
+    let mut fmt_len = 0;
 
     let mut str_accum: Cow<str> = "".into();
     while let Some(piece) = parser.next() {
@@ -423,6 +445,8 @@ fn parse<'s, P: ParseTarget<'s>>(parser: &mut fmt_macros::Parser<'s>, target: &m
             }
             p::Piece::NextArgument(arg) => {
                 let mut push_arg = |arg| {
+                    // TODO: if this arg already appears in `args`, don't push
+                    // it another time, reuse the previous index.
                     let len = args.len();
                     args.push(arg);
                     len
@@ -474,28 +498,39 @@ fn parse<'s, P: ParseTarget<'s>>(parser: &mut fmt_macros::Parser<'s>, target: &m
                         p::CountImplied => v1::Count::Implied,
                     })
                 };
-                let spec = v1::FormatSpec {
-                    fill: arg.format.fill.unwrap_or(' '),
-                    flags: arg.format.flags,
-                    align: match arg.format.align {
-                        p::AlignLeft => v1::Alignment::Left,
-                        p::AlignRight => v1::Alignment::Right,
-                        p::AlignCenter => v1::Alignment::Center,
-                        p::AlignUnknown => v1::Alignment::Unknown,
-                    },
-                    precision: convert_count(arg.format.precision)?,
-                    width: convert_count(arg.format.width)?,
-                };
 
-                // push the format spec and argument value
-                fmt.push(v1::Argument {
-                    position: v1::Position::At(argument_pos),
-                    format: spec,
-                });
+                // If specs were implicit but this is non-default, fill in the
+                // previously-implicit values.
+                if fmt.is_none() && (arg.format != DEFAULT_KEY || argument_pos != fmt_len) {
+                    fmt = Some((0..fmt_len).map(|i| v1::Argument {
+                        position: v1::Position::At(i),
+                        format: DEFAULT_VALUE,
+                    }).collect::<Vec<_>>());
+                }
 
-                // TODO: let fmt be none if all fmts are default.
-                // TODO: for params which appear multiple times in the format
-                // string, only add them to the args list once.
+                // If specs are currently explicit, push this spec.
+                if let Some(fmt) = fmt.as_mut() {
+                    let spec = v1::FormatSpec {
+                        fill: arg.format.fill.unwrap_or(' '),
+                        flags: arg.format.flags,
+                        align: match arg.format.align {
+                            p::AlignLeft => v1::Alignment::Left,
+                            p::AlignRight => v1::Alignment::Right,
+                            p::AlignCenter => v1::Alignment::Center,
+                            p::AlignUnknown => v1::Alignment::Unknown,
+                        },
+                        precision: convert_count(arg.format.precision)?,
+                        width: convert_count(arg.format.width)?,
+                    };
+
+                    // push the format spec and argument value
+                    fmt.push(v1::Argument {
+                        position: v1::Position::At(argument_pos),
+                        format: spec,
+                    })
+                }
+
+                fmt_len += 1;
             }
         }
     }
