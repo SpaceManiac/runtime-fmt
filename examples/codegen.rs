@@ -21,6 +21,9 @@ struct Alignable {
     width: usize,
 }
 
+#[derive(FormatArgs)]
+struct WithBounds<'a, T: std::fmt::Display + 'a>(&'a T);
+
 fn main() {
     let mut prepared = PreparedFormat::prepare("{left}: {right}").unwrap();
     prepared.newln();
@@ -43,5 +46,7 @@ fn main() {
     prepared.print(&Alignable {
         text: "Wow, aligned!",
         width: 20
-    })
+    });
+
+    PreparedFormat::prepare("{}").unwrap().newln().print(&WithBounds(&256));
 }

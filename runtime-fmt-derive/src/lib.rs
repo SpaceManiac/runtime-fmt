@@ -31,7 +31,7 @@ fn implement(ast: &syn::DeriveInput) -> quote::Tokens {
     match *variant {
         syn::VariantData::Struct(ref fields) => {
             get_child = build_fields(fields);
-            as_usize = build_usize(ident, fields);
+            as_usize = build_usize(ast, fields);
             validate_index = quote! { false };
 
             let index = 0..fields.len();
@@ -48,7 +48,7 @@ fn implement(ast: &syn::DeriveInput) -> quote::Tokens {
         }
         syn::VariantData::Tuple(ref fields) => {
             get_child = build_fields(fields);
-            as_usize = build_usize(ident, fields);
+            as_usize = build_usize(ast, fields);
             validate_name = quote! { _Option::None };
 
             let len = fields.len();
@@ -62,7 +62,7 @@ fn implement(ast: &syn::DeriveInput) -> quote::Tokens {
         }
     };
 
-    // TODO: impl_generics, ty_generics, where_clause
+    let (impl_generics, ty_generics, where_clause) = ast.generics.split_for_impl();
     quote! {
         #[allow(non_upper_case_globals, unused_attributes)]
         #[allow(unused_variables, unused_qualifications)]
@@ -71,7 +71,7 @@ fn implement(ast: &syn::DeriveInput) -> quote::Tokens {
             use std::fmt::{Formatter as _Formatter, Result as _Result};
             use std::option::Option as _Option;
             #[automatically_derived]
-            impl _runtime_fmt::FormatArgs for #ident {
+            impl #impl_generics _runtime_fmt::FormatArgs for #ident #ty_generics #where_clause {
                 fn validate_name(name: &str) -> _Option<usize> {
                     #validate_name
                 }
@@ -110,7 +110,21 @@ fn build_fields(fields: &[syn::Field]) -> quote::Tokens {
     }
 }
 
-fn build_usize(self_: &syn::Ident, fields: &[syn::Field]) -> quote::Tokens {
+fn build_usize(ast: &syn::DeriveInput, fields: &[syn::Field]) -> quote::Tokens {
+    let self_ = &ast.ident;
+    let (_, ty_generics, where_clause) = ast.generics.split_for_impl();
+
+    // To avoid causing trouble with lifetime elision rules, an explicit
+    // lifetime for the input and output is used.
+    let lifetime = syn::Ident::new("'__as_usize_inner");
+    let mut generics2 = ast.generics.clone();
+    generics2.lifetimes.insert(0, syn::LifetimeDef {
+        attrs: vec![],
+        lifetime: syn::Lifetime { ident: lifetime.clone() },
+        bounds: vec![],
+    });
+    let (impl_generics, _, _) = generics2.split_for_impl();
+
     let mut result = quote::Tokens::new();
     for (idx, field) in fields.iter().enumerate() {
         let ident = match field.ident {
@@ -120,7 +134,9 @@ fn build_usize(self_: &syn::Ident, fields: &[syn::Field]) -> quote::Tokens {
         let ty = &field.ty;
         result.append(quote! {
             #idx => {
-                fn inner(this: &#self_) -> &#ty { &this.#ident }
+                fn inner #impl_generics (this: &#lifetime #self_ #ty_generics)
+                    -> &#lifetime #ty
+                    #where_clause { &this.#ident }
                 _runtime_fmt::codegen::as_usize(inner)
             },
         });
