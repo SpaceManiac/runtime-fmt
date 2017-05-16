@@ -1,13 +1,14 @@
 [package]
-authors = ["Tad Hardesty <tad@platymuus.com>"]
-description = "Runtime-based string formatting, custom derive plugin"
-documentation = "https://docs.rs/runtime-fmt-derive"
-keywords = ["format", "fmt", "runtime", "string", "formatting"]
-license = "MIT/Apache-2.0"
 name = "runtime-fmt-derive"
-readme = "README.md"
+version = "0.2.0"
+authors = ["Tad Hardesty <tad@platymuus.com>"]
+
+description = "Runtime-based string formatting, custom derive plugin"
+license = "MIT/Apache-2.0"
+keywords = ["format", "fmt", "runtime", "string", "formatting"]
+
 repository = "https://github.com/SpaceManiac/runtime-fmt"
-version = "0.1.0"
+documentation = "https://docs.rs/runtime-fmt-derive"
 
 [dependencies]
 quote = "0.3.15"
