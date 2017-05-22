@@ -18,7 +18,7 @@
 #![feature(conservative_impl_trait)]
 #![feature(specialization)]
 #![feature(unicode)]
-#![feature(print)]
+#![feature(print_internals)]
 #![feature(try_from)]
 
 #[doc(hidden)]
