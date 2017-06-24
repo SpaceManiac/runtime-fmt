@@ -17,8 +17,8 @@
 #![feature(fmt_internals)]
 #![feature(conservative_impl_trait)]
 #![feature(specialization)]
-#![feature(unicode)]
 #![feature(print_internals)]
+#![feature(rustc_private)]
 #![feature(try_from)]
 
 #[doc(hidden)]
