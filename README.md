@@ -17,3 +17,6 @@ The syntax for format strings and for macro invocations is equivalent to
 that used by `std::fmt`, including support for positional and named
 arguments. This crate shells out to the standard library implementations
 for as much as possible to ensure feature parity.
+
+This crate makes extensive use of the unstable formatting machinery and
+therefore **requires nightly**.
