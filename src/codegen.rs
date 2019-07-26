@@ -27,7 +27,7 @@ trait Specialized<T> {
 macro_rules! impl_format_trait {
     ($($name:ident,)*) => {
         $(
-            impl<T> Specialized<T> for $name {
+            impl<T> Specialized<T> for dyn $name {
                 #[inline]
                 default fn allowed() -> bool { false }
                 #[inline]
@@ -36,7 +36,7 @@ macro_rules! impl_format_trait {
                 }
             }
 
-            impl<T: $name> Specialized<T> for $name {
+            impl<T: $name> Specialized<T> for dyn $name {
                 #[inline]
                 fn allowed() -> bool { true }
                 #[inline]
@@ -45,7 +45,7 @@ macro_rules! impl_format_trait {
                 }
             }
 
-            impl FormatTrait for $name {
+            impl FormatTrait for dyn $name {
                 #[inline]
                 fn allowed<T>() -> bool { <Self as Specialized<T>>::allowed() }
                 #[inline]

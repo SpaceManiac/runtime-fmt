@@ -68,7 +68,7 @@ macro_rules! traits {
         {
             match name {
                 $(
-                    $string => match T::get_child::<fmt::$upper>(idx) {
+                    $string => match T::get_child::<dyn fmt::$upper>(idx) {
                         Some(f) => Ok(f),
                         None => Err(Error::UnsatisfiedFormat {
                             idx: idx,

@@ -15,11 +15,10 @@
 //! arguments. This crate shells out to the standard library implementations
 //! for as much as possible to ensure feature parity.
 #![feature(fmt_internals)]
-#![feature(conservative_impl_trait)]
+#![feature(unicode_internals)]
 #![feature(specialization)]
 #![feature(print_internals)]
 #![feature(rustc_private)]
-#![feature(try_from)]
 
 #[doc(hidden)]
 #[inline]
@@ -92,7 +91,7 @@ impl<'a> std::error::Error for Error<'a> {
             Error::Fmt(ref f) => f.description(),
         }
     }
-    fn cause(&self) -> Option<&std::error::Error> {
+    fn cause(&self) -> Option<&dyn std::error::Error> {
         match *self {
             Error::Io(ref e) => Some(e),
             Error::Fmt(ref e) => Some(e),
@@ -131,7 +130,7 @@ impl<'a> fmt::Display for Error<'a> {
 /// A type-erased parameter, with an optional name.
 pub struct Param<'a> {
     name: Option<&'static str>,
-    value: &'a erase::Format,
+    value: &'a dyn erase::Format,
     as_usize: Option<usize>,
 }
 
