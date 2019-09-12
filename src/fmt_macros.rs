@@ -24,6 +24,8 @@
        test(attr(deny(warnings))))]*/
 #![deny(warnings)]
 
+extern crate unicode_xid;
+
 pub use self::Piece::*;
 pub use self::Position::*;
 pub use self::Alignment::*;
@@ -33,6 +35,8 @@ pub use self::Count::*;
 use std::str;
 use std::string;
 use std::iter;
+
+use self::unicode_xid::UnicodeXID;
 
 /// A piece is a portion of the format string which represents the next part
 /// to emit. These are emitted as a stream by the `Parser` class.
@@ -419,7 +423,7 @@ impl<'a> Parser<'a> {
     /// characters.
     fn word(&mut self) -> &'a str {
         let start = match self.cur.peek() {
-            Some(&(pos, c)) if c.is_xid_start() => {
+            Some(&(pos, c)) if UnicodeXID::is_xid_start(c) => {
                 self.cur.next();
                 pos
             }
@@ -428,7 +432,7 @@ impl<'a> Parser<'a> {
             }
         };
         while let Some(&(pos, c)) = self.cur.peek() {
-            if c.is_xid_continue() {
+            if UnicodeXID::is_xid_continue(c) {
                 self.cur.next();
             } else {
                 return &self.input[start..pos];
