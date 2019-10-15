@@ -1,5 +1,6 @@
 //! A custom-derive implementation for the `FormatArgs` trait.
 #![recursion_limit="128"]
+#![feature(option_entry)]
 
 extern crate proc_macro;
 extern crate syn;
@@ -7,63 +8,38 @@ extern crate syn;
 
 use proc_macro::TokenStream;
 
+use ast::Container;
+
+mod ast;
+mod context;
+
 /// Derive a `FormatArgs` implementation for the provided input struct.
-#[proc_macro_derive(FormatArgs)]
+#[proc_macro_derive(FormatArgs, attributes(format_args))]
 pub fn derive_format_args(input: TokenStream) -> TokenStream {
     let string = input.to_string();
     let ast = syn::parse_derive_input(&string).unwrap();
-    implement(&ast).parse().unwrap()
+    match implement_format_trait(&ast) {
+        Ok(tokens) => tokens.parse().unwrap(),
+        Err(error) => panic!(error)
+    }
 }
 
-fn implement(ast: &syn::DeriveInput) -> quote::Tokens {
-    // The rough structure of this (dummy_ident, extern crate/use) is based on
-    // how serde_derive does it.
+fn implement_format_trait(ast: &syn::DeriveInput) -> Result<quote::Tokens, String> {
+    let container = Container::from_ast(ast)?;
 
-    let ident = &ast.ident;
-    let variant = match ast.body {
-        syn::Body::Struct(ref variant) => variant,
-        _ => panic!("#[derive(FormatArgs)] is not implemented for enums")
+    let validate_name = build_validate_name(&container);
+    let validate_index = {
+        let max_index = container.fields().len();
+        quote! { index < #max_index }
     };
+    let get_child = build_get_child(&container);
+    let as_usize = build_as_usize(&container);
 
+    let ident = container.ident();
     let dummy_ident = syn::Ident::new(format!("_IMPL_FORMAT_ARGS_FOR_{}", ident));
-
-    let (validate_name, validate_index, get_child, as_usize);
-    match *variant {
-        syn::VariantData::Struct(ref fields) => {
-            get_child = build_fields(fields);
-            as_usize = build_usize(ast, fields);
-            validate_index = quote! { false };
-
-            let index = 0..fields.len();
-            let ident: Vec<_> = fields.iter()
-                .map(|field| field.ident.as_ref().unwrap())
-                .map(ToString::to_string)
-                .collect();
-            validate_name = quote! {
-                match name {
-                    #(#ident => _Option::Some(#index),)*
-                    _ => _Option::None,
-                }
-            };
-        }
-        syn::VariantData::Tuple(ref fields) => {
-            get_child = build_fields(fields);
-            as_usize = build_usize(ast, fields);
-            validate_name = quote! { _Option::None };
-
-            let len = fields.len();
-            validate_index = quote! { index < #len };
-        }
-        syn::VariantData::Unit => {
-            validate_name = quote! { _Option::None };
-            validate_index = quote! { false };
-            get_child = quote! { panic!("bad index {}", index) };
-            as_usize = get_child.clone();
-        }
-    };
-
     let (impl_generics, ty_generics, where_clause) = ast.generics.split_for_impl();
-    quote! {
+
+    Ok(quote! {
         #[allow(non_upper_case_globals, unused_attributes)]
         #[allow(unused_variables, unused_qualifications)]
         const #dummy_ident: () = {
@@ -75,6 +51,7 @@ fn implement(ast: &syn::DeriveInput) -> quote::Tokens {
                 fn validate_name(name: &str) -> _Option<usize> {
                     #validate_name
                 }
+                #[allow(unused_comparisons)]
                 fn validate_index(index: usize) -> bool {
                     #validate_index
                 }
@@ -88,36 +65,55 @@ fn implement(ast: &syn::DeriveInput) -> quote::Tokens {
                 }
             }
         };
-    }
+    })
 }
 
-fn build_fields(fields: &[syn::Field]) -> quote::Tokens {
-    let index = 0..fields.len();
-    let ty: Vec<_> = fields.iter().map(|field| &field.ty).collect();
-    let ident: Vec<_> = fields.iter().enumerate().map(|(idx, field)| match field.ident {
-        Some(ref ident) => ident.clone(),
-        None => syn::Ident::from(idx),
-    }).collect();
+fn build_validate_name<'a>(container: &Container<'a>) -> quote::Tokens {
+    let mut matches = quote::Tokens::new();
+    for field in container.fields() {
+        let aliases = field.aliases();
+        if !aliases.is_empty() {
+            let index = field.index();
+            matches.append(quote! { #(#aliases)|* => _Option::Some(#index), });
+        }
+    }
     quote! {
-        match index {
-            #(
-                #index => _runtime_fmt::codegen::combine::<__F, Self, #ty, _>(
-                    |this| &this.#ident
-                ),
-            )*
-            _ => panic!("bad index {}", index)
+        match name {
+            #matches
+            _ => _Option::None
         }
     }
 }
 
-fn build_usize(ast: &syn::DeriveInput, fields: &[syn::Field]) -> quote::Tokens {
-    let self_ = &ast.ident;
-    let (_, ty_generics, where_clause) = ast.generics.split_for_impl();
+fn build_get_child<'a>(container: &Container<'a>) -> quote::Tokens {
+    let mut matches = quote::Tokens::new();
+    for field in container.fields() {
+        let index = field.index();
+        let ty = field.ty();
+        let ident = field.ident();
+
+        matches.append(quote! {
+            #index => _runtime_fmt::codegen::combine::<__F, Self, #ty, _>(
+                |this| &this.#ident
+            ),
+        });
+    }
+    quote! {
+        match index {
+            #matches
+            _ => panic!("Bad index: {}", index)
+        }
+    }
+}
+
+fn build_as_usize<'a>(container: &'a Container) -> quote::Tokens {
+    let self_ = container.ident();
+    let (_, ty_generics, where_clause) = container.generics().split_for_impl();
 
     // To avoid causing trouble with lifetime elision rules, an explicit
     // lifetime for the input and output is used.
     let lifetime = syn::Ident::new("'__as_usize_inner");
-    let mut generics2 = ast.generics.clone();
+    let mut generics2 = container.generics().clone();
     generics2.lifetimes.insert(0, syn::LifetimeDef {
         attrs: vec![],
         lifetime: syn::Lifetime { ident: lifetime.clone() },
@@ -125,15 +121,14 @@ fn build_usize(ast: &syn::DeriveInput, fields: &[syn::Field]) -> quote::Tokens {
     });
     let (impl_generics, _, _) = generics2.split_for_impl();
 
-    let mut result = quote::Tokens::new();
-    for (idx, field) in fields.iter().enumerate() {
-        let ident = match field.ident {
-            Some(ref ident) => ident.clone(),
-            None => syn::Ident::from(idx),
-        };
-        let ty = &field.ty;
-        result.append(quote! {
-            #idx => {
+    let mut matches = quote::Tokens::new();
+    for field in container.fields() {
+        let index = field.index();
+        let ty = field.ty();
+        let ident = field.ident();
+
+        matches.append(quote! {
+            #index => {
                 fn inner #impl_generics (this: &#lifetime #self_ #ty_generics)
                     -> &#lifetime #ty
                     #where_clause { &this.#ident }
@@ -144,7 +139,7 @@ fn build_usize(ast: &syn::DeriveInput, fields: &[syn::Field]) -> quote::Tokens {
 
     quote! {
         match index {
-            #result
+            #matches
             _ => panic!("bad index {}", index)
         }
     }
